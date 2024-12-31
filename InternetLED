@@ -1,0 +1,107 @@
+import network
+import socket
+from time import sleep
+from picozero import pico_temp_sensor, pico_led
+import machine
+
+ssid = 'SETUP-588E'
+password = 'dozed1683appear'
+led = machine.Pin('LED' , machine.Pin.OUT)
+
+def blinky():
+    for i in range(10):
+        led.on()
+        sleep(0.05*i)
+        led.off()
+        sleep(0.05*i)
+        
+
+def connect():
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    wlan.connect(ssid, password)
+    while wlan.isconnected() == False:
+        print('Waiting for connection...')
+        led.on()
+        sleep(1)
+        print('Waiting for connection...')
+        led.off()
+        sleep(1)
+    ip = wlan.ifconfig()[0]
+    print(f'Connected on {ip}')
+    return ip
+    
+
+def open_socket(ip):
+    address = (ip, 80)
+    connection = socket.socket()
+    connection.bind(address)
+    connection.listen(1)
+    return connection
+
+
+def webpage(temperature, state):
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>LED Controller</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; background-color: #f4f4f9; margin: 0; padding: 20px; color: #333;">
+        <div style="max-width: 600px; margin: auto; padding: 20px; background-color: #ffffff; border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);">
+            <h1 style="text-align: center; color: #4CAF50;">LED Controller</h1>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+                <form action="./lighton" style="flex: 1; margin-right: 10px;">
+                    <button type="submit" style="width: 100%; padding: 10px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">Light On</button>
+                </form>
+                <form action="./lightoff" style="flex: 1; margin-left: 10px;">
+                    <button type="submit" style="width: 100%; padding: 10px; background-color: #f44336; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">Light Off</button>
+                </form>
+            </div>
+            <form action="./blinky" style="margin-bottom: 20px;">
+                <button type="submit" style="width: 100%; padding: 10px; background-color: #2196F3; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">Blinky Time</button>
+            </form>
+            <p style="font-size: 18px; text-align: center;">LED is <strong style='color: {"green" if state == "on" else "red"};'>{state}</strong></p>
+            <p style="font-size: 18px; text-align: center;">Temperature is <strong>{temperature}&deg;C</strong></p>
+        </div>
+    </body>
+    </html>
+    """
+    return str(html)
+
+
+
+def serve(connection):
+    #Start a web server
+    state = 'OFF'
+    pico_led.off()
+    temperature = 0
+    while True:
+        client = connection.accept()[0]
+        request = client.recv(1024)
+        request = str(request)
+        try:
+            request = request.split()[1]
+        except IndexError:
+            pass
+        if request == '/lighton?':
+            pico_led.on()
+            state = 'ON'
+        elif request =='/lightoff?':
+            pico_led.off()
+            state = 'OFF'
+        elif request =='/blinky?':
+            blinky()
+            state= 'OFF'
+        temperature = pico_temp_sensor.temp
+        html = webpage(temperature, state)
+        client.send(html)
+        client.close()
+    
+try:
+    ip = connect()
+    connection=open_socket(ip)
+    serve(connection)
+    
+except KeyboardInterrupt:
+    machine.reset()
